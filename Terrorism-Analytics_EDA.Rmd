@@ -1,0 +1,1070 @@
+---
+title: "Terrorism Analytics"
+author: "Maotong Sun; Qiuyi Chen"
+date: "4/15/2020"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Introduction**
+
+We will use the data from the Global Terrorism Database (GTD). The database contains more than 180,000 Terrorist Attacks worldwide from 1970 through 2017. 
+
+We are also going to use the World GDP (current US dolloars, 1960-2018), World Military Expenditure (current US dolloars, 1960-2018), and World Military Expenditure (% of GDP) from the World Bank Open Data to help our data analysis.
+
+Our main goal is to develop a regression model that can tell us how the terrorism activities will affect the economy development of one country through the proportion of military expenditure in its GDP. 
+
+Also, we studied on building classification model for classifying the most common terrorist attacks' types (Assassination, Armed Assault, Bombing/Explosion, .etc) per year in one country.
+
+Building predictive model for the number of attacks per year in a country is our initial goal. However, we think time series models would make this task more meaningful, because before the prediction, we can only use the data of the past few years. But we still studied the relationship between the number of attacks and the other variables related with the terrorism activities.
+
+**CoNVO statement**
+
+- Context:
+This global terrorism analysis work can help economy and policy analysts working in defense/intelligence departments and some think tanks, such as RAND Corporation, Brookings Institution and Center for Strategic and International Studies (CSIS).
+
+- Needs:
+We are going to use data analysis to help them better understand the development and changing trend of terrorism activities. Also, we will use statistical models to show the influence of terrosidm activities on the economy development in some countries.
+
+- Vision:
+For the data visualization part, the figures can provide useful information for the trends of terrorism activities. Also, fitting the dataset with the best statistical model, and then the variable importance of that model can tell us the important factors for the reponse variable (proportion of military expenditure, attack types and the number of attacks).
+
+- Outcome:
+Economy and policy analysts working in government departments and think tanks can use this global terrorsm analysis results to help assess the economy development and military expenditure increasement in some countries. The influence of terrorism activities should be considered and paid attention on. Also, analysts could study the role of terrorism activities in making military expenditure influence the economy development.
+
+## 1. Loading the required package and the dataset
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(gridExtra)
+library(ggmap)
+library(rworldmap)
+library(arules)
+library(ggpubr)
+library(car)
+library(caret)
+library(zoo)
+library(ggfortify)
+library(data.table)
+library(ggthemes)
+library(plotly)
+library(viridis)
+library(GGally)
+library(DescTools)
+library(Hmisc)
+library(xgboost)
+library(rpart.plot)
+library(DMwR)
+```
+
+```{r}
+# GTdata <- read_csv("C:/Users/Vincy/Desktop/Data Science/project/globalterrorismdb_0718dist.csv")
+GTdata <- read.csv("D:\\Pitt_2\\Data Science\\gtd\\globalterrorismdb_0718dist.csv")
+
+# GDPdata <- read_csv("C:/Users/Vincy/Desktop/Data Science/project/GDP.csv")
+GDPdata <- read.csv("D:\\Pitt_2\\Data Science\\API_NY.GDP.MKTP.CD_DS2_en_csv_v2_713242\\GDP.csv")
+
+# MilEXPdata <- read_csv("C:/Users/Vincy/Desktop/Data Science/project/MLE.csv")
+MilEXPdata <- read.csv("D:\\Pitt_2\\Data Science\\API_MS.MIL.XPND.CD_DS2_en_csv_v2_716872\\MLE.csv")
+
+# MilEGdata <- read_csv("C:/Users/Vincy/Desktop/Data Science/project/MLE_G.csv")
+MilEGdata <- read.csv("D:\\Pitt_2\\Data Science\\API_MS.MIL.XPND.GD.ZS_DS2_en_csv_v2_712990\\MLE_G.csv")
+```
+
+## 2. Data Cleaning
+- Removing unnecessary variables.
+- Renaming some variables in all four datasets.
+- We are going to focus for the sake of keeping our analysis clear on a subset of variables.
+```{r}
+GTdata_sub <- GTdata %>%
+  select(iyear, imonth, iday, country_txt, region_txt, city, latitude, longitude, summary, multiple, attacktype1_txt, 
+         targtype1_txt, targsubtype1_txt, gname, weaptype1_txt, nkill, nwound, nkillter)
+
+GTdata_sub <- GTdata_sub %>% 
+  rename(year = iyear, month = imonth, day = iday, country = country_txt, 
+         region = region_txt, multiple_attack = multiple, attacktype = attacktype1_txt, target_type = targtype1_txt, 
+         target_sub_type = targsubtype1_txt, group_name = gname, weapon_type = weaptype1_txt)
+
+GTdata_sub <- GTdata_sub %>%
+  mutate(decade = 
+           ifelse(year<1980, '70s', 
+                  ifelse(year < 1990, '80s', 
+                         ifelse(year < 2000, '90s', 
+                                ifelse( year < 2010, '2000s', '2010s')))))
+
+GTdata_sub$decade <- factor(GTdata_sub$decade, levels=c("70s", "80s", "90s", "2000s", "2010s"))
+names(GTdata_sub)
+```
+
+```{r}
+GDPdata <- GDPdata %>%
+  rename(
+    Country_Name = ï..Country.Name,
+    Country_Code = Country.Code,
+    Indicator_Name = Indicator.Name,
+    Indicator_Code = Indicator.Code
+  )
+names(GDPdata)
+```
+
+```{r}
+MilEXPdata <- MilEXPdata %>%
+  rename(
+    Country_Name = ï..Country.Name,
+    Country_Code = Country.Code,
+    Indicator_Name = Indicator.Name,
+    Indicator_Code = Indicator.Code
+  )
+names(MilEXPdata)
+```
+
+```{r}
+MilEGdata <- MilEGdata %>%
+  rename(
+    Country_Name = ï..Country.Name,
+    Country_Code = Country.Code,
+    Indicator_Name = Indicator.Name,
+    Indicator_Code = Indicator.Code
+  )
+names(MilEGdata)
+```
+
+## 3. Data Overview
+```{r}
+glimpse(GTdata)
+```
+
+```{r}
+glimpse(GTdata_sub)
+```
+
+```{r}
+glimpse(GDPdata)
+```
+
+```{r}
+glimpse(MilEXPdata)
+```
+
+```{r}
+glimpse(MilEGdata)
+```
+
+- Trend of Terrorist Attacks over the year
+```{r}
+count_attack = setDT(GTdata_sub)[,.N,by = year]
+
+ggplot(count_attack,aes(year, N ,col = "red")) + 
+  geom_line() + 
+  geom_point(col = "black", size = 1.3) +
+  theme_economist() + 
+  theme(legend.position = "null", plot.title = element_text(size = 15,hjust = 0.5), axis.text.x = element_text(angle = 90)) +
+  labs(x = "Year",y = "Count of Attacks", title = "Trend of Terrorist Attacks over the year") + 
+  scale_x_continuous(limits = c(1970, 2017), breaks = seq(1970, 2017, 2))
+```
+The trend clearly indicates that there has been an rise in terrorist attacks after 2001 Afghanistan War and 2003 Iraq War
+
+```{r}
+GTdata_sub %>% 
+  summarise(nr_of_attacks = n())
+```
+Over 180,000 attacks happening, and they seem to have gone up!
+  
+- Attack type distribution
+```{r}
+par(mfrow = c(1, 2))
+
+ggplot(data = GTdata_sub, aes(x = attacktype)) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  geom_histogram(stat = 'count') + 
+  labs(title = 'Terrorism attack type distribution')
+
+ggplot(data = GTdata_sub, aes(x = attacktype, y = year)) + 
+  geom_violin(fill = "firebrick2", color = "firebrick2") + 
+  coord_flip() + 
+  labs(title = 'Terrorism attack type distribution')
+```
+
+- Target distribution
+```{r}
+ggplot(data = GTdata_sub, aes(x = target_type, fill=decade)) +
+  geom_bar(stat='count') +
+  theme(axis.text.x= element_text(angle=45, hjust=1)) + 
+  coord_flip() +
+  labs(title='Target distribution of terrorism over time')
+```
+
+```{r}
+GTdata_sub %>%
+  group_by(target_type) %>%
+  summarise(nr_of_attacks = n()) %>%
+  arrange(desc(nr_of_attacks))
+```
+It seems private citizens have become a bigger target after 21st Century.
+  
+- Locations of terrorism
+ - We want to see where  the terrorist attacks happen around the world.
+```{r}
+ggplot(data = GTdata_sub, aes(x = region, y = year)) + 
+  geom_violin(fill = "firebrick2", color = "firebrick2") + 
+  coord_flip() + 
+  labs(title = 'Regions under terrorism in different periods')
+```
+No data of Central Asia before 1993, because most countries in Central Asia used to be part of USSR.
+
+- Let's view the top 10 locations for terrorist attacks by region, country and city
+```{r}
+GTdata_sub %>%
+  group_by(region) %>%
+  summarise(nr_of_attacks = n()) %>%
+  arrange(desc(nr_of_attacks)) %>%
+  head(n=10)
+GTdata_sub %>%
+  group_by(country) %>%
+  summarise(nr_of_attacks = n()) %>%
+  arrange(desc(nr_of_attacks)) %>%
+  head(n=10)
+GTdata_sub %>%
+  filter(city != 'Unknown') %>%
+  group_by(city) %>%
+  summarise(nr_of_attacks = n()) %>%
+  arrange(desc(nr_of_attacks)) %>%
+  head(n=10)
+```
+- Middle East & North Africa, South Asia and South America are the top three regioins in terms of attacks. Iraq, Pakistan,        Afghanistan, India and Colombia are the top five countries in terms of number of attacks
+
+```{r}
+top20_countries <- GTdata_sub %>%
+  group_by(region, country) %>%
+  summarise(nr_of_attacks = n()) %>%
+  mutate(percent = nr_of_attacks/sum(nr_of_attacks))%>%
+  arrange(desc(nr_of_attacks)) %>%
+  head(n=20)
+
+#visual by country
+ggplot(data = top20_countries) +
+  stat_summary(aes(x = country, y = nr_of_attacks, fill = region), geom="bar") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(title = 'Amount of terrorist attacks per country and region')
+```
+
+- Distribution of terrorist groups
+```{r}
+top10_groups <- GTdata_sub %>%
+  filter(group_name != "Unknown") %>%
+  group_by(group_name) %>%
+  summarise(nr_of_attacks = n()) %>%
+  arrange(desc(nr_of_attacks)) %>%
+  head(n=10)
+
+top10_groups
+```
+
+```{r}
+ggplot(data=top10_groups) +
+  stat_summary(aes(x=group_name, y=nr_of_attacks), geom="bar") +
+  theme(axis.text.x= element_text(angle=45, hjust=1)) +
+  labs(title='Terrorist attacks per group')
+```
+
+- Let's look at the activity of groups over time
+```{r}
+top10_groups_activity <- GTdata_sub %>%
+  filter(GTdata_sub$group_name %in% c("Taliban", "Islamic State of Iraq and the Levant (ISIL)", "Shining Path (SL)", 
+                              "Farabundo Marti National Liberation Front (FMLN)", "Al-Shabaab", "New People's Army (NPA)",
+                              "Irish Republican Army (IRA)", "Revolutionary Armed Forces of Colombia (FARC)",
+                              "Boko Haram", "Kurdistan Workers' Party (PKK)")) %>%
+  select(year, group_name) %>% 
+  group_by(year, group_name) %>%
+  summarise(nr_of_attacks = n()) %>%
+  arrange(desc(nr_of_attacks)) %>%
+  top_n(n = 10, wt = nr_of_attacks)
+
+#Visual by Top 10 Terror Group Activity  / decade since 1970
+ggplot(data = top10_groups_activity, aes(x = year, y = nr_of_attacks, col = group_name, group = group_name)) +
+  geom_line(size = 1, alpha = 0.5) + 
+  theme(legend.position = "right")+
+  labs(title = 'Terrorist Group activity over time') +
+  theme(legend.position = "bottom", legend.text=element_text(size = 3.5))
+```
+
+- Now we are going to get a deep look into the number of affected people/properties.
+- Firstly, the number of killed.
+```{r}
+par(mfrow = c(1, 3))
+
+plot_0 <- GTdata_sub %>%
+  group_by(year) %>%
+  summarise(Killed = sum(nkill, na.rm = T)) %>%
+  ggplot(aes(year, Killed)) +
+  geom_line(stat = "identity", color = "firebrick2")+
+  geom_point(color = "firebrick2")+
+  labs(title = "Number of killed people over time")
+
+ggplotly(plot_0)
+
+plot_1 <- GTdata_sub %>%
+  mutate(Type = reorder(attacktype, nkill, sum, na.rm = T)) %>%
+  group_by(year, Type) %>%
+  summarise(Killed = sum(nkill, na.rm = T)) %>%
+  ggplot(aes(year, Type)) +
+  geom_tile(aes(fill = Killed))+
+  scale_fill_viridis_c()+
+  labs(title = "Killed frequency by Type")
+
+ggplotly(plot_1)
+
+plot_2 <- GTdata_sub %>%
+  mutate(Region = reorder(region, nkill, sum, na.rm = T)) %>%
+  group_by(year, Region) %>%
+  summarise(Killed = sum(nkill, na.rm = T)) %>%
+  ggplot(aes(year, Region)) +
+  geom_tile(aes(fill = Killed))+
+  scale_fill_viridis_c()+
+  labs(title = "Killed frequency by Region")
+
+ggplotly(plot_2)
+```
+
+- Similarly, we can have a look at the number of wounded.
+```{r}
+par(mfrow = c(1, 3))
+
+plot_0 <- GTdata_sub %>%
+  group_by(year) %>%
+  summarise(Wounded = sum(nwound, na.rm = T)) %>%
+  ggplot(aes(year, Wounded)) +
+  geom_line(stat = "identity", color = "firebrick2")+
+  geom_point(color = "firebrick2")+
+  labs(title = "Number of Wounded people over time")
+
+ggplotly(plot_0)
+
+plot_1 <- GTdata_sub %>%
+  mutate(Type = reorder(attacktype, nwound, sum, na.rm = T)) %>%
+  group_by(year, Type) %>%
+  summarise(Wounded = sum(nwound, na.rm = T)) %>%
+  ggplot(aes(year, Type)) +
+  geom_tile(aes(fill = Wounded))+
+  scale_fill_viridis_c()+
+  labs(title = "Wounded frequency by Type")
+
+ggplotly(plot_1)
+
+plot_2 <- GTdata_sub %>%
+  mutate(Region = reorder(region, nwound, sum, na.rm = T)) %>%
+  group_by(year, Region) %>%
+  summarise(Wounded = sum(nwound, na.rm = T)) %>%
+  ggplot(aes(year, Region)) +
+  geom_tile(aes(fill = Wounded))+
+  scale_fill_viridis_c()+
+  labs(title = "Wounded frequency by Region")
+
+ggplotly(plot_2)
+```
+The rise of ISIS in 2014 and USA's 9/11 in 2001 can be identified from the figure "Number of killed people over time" and "Number of Wounded people over time".
+
+Also, we can have a look at the killed and wounded people by type.
+```{r}
+par(mfrow = c(1, 2))
+
+ggplot(data = GTdata_sub, aes(attacktype, nkill)) + 
+  geom_bar(stat = 'identity', fill = 'firebrick2') + 
+  coord_flip() + 
+  labs(title = 'Number of people killed by Type')
+
+ggplot(data = GTdata_sub, aes(attacktype, nwound)) +
+  geom_bar(stat = 'identity', fill = 'firebrick2') +
+  coord_flip() +
+  labs(title = 'Number of people wounded by Type')
+```
+Although 'Armed Assault' has made the most victims, the amount of wounded people caused by 'Bombing/Explosion' is almost 4 times more than that caused by 'Armed Assault'.
+
+Variables Pairsplot
+ - We select Pakistan to see the relationship among several variables.
+ - We choose the data points after 1980 USSR invading Afghanistan, because the security situation of Pakistan became much worse after    that.
+
+```{r}
+gtdata <- read.csv("D:\\Pitt_2\\Data Science\\globalterrorismdb_0718dist_1\\globalterrorismdb_0718dist_.csv")
+
+GTdata_pairs <- gtdata %>% 
+  select(iyear, country_txt, nkill, nwound, nkillter, GDP, MLE, MLE_G)
+
+GTdata_pairs <- GTdata_pairs %>% 
+  rename(year = iyear, country = country_txt)
+
+for (i in 3:8) {
+  GTdata_pairs[, i] <- as.numeric(as.character(GTdata_pairs[, i], na.rm = T))
+}
+
+df <- GTdata_pairs %>% 
+  filter(country == 'Pakistan') %>% 
+  filter(year >= 1980) %>% 
+  group_by(year, country) %>% 
+  summarise(killed = sum(na.omit(nkill)), wounded = sum(na.omit(nwound)),killters = sum(na.omit(nkillter)),
+            GDP = mean(na.omit(GDP)),MLE = mean(na.omit(MLE)),MLE_G = mean(na.omit(MLE_G)))
+
+df<-df[,-c(1,2)]
+
+ggpairs(df)
+```
+
+## 4. Location of Terrorism
+```{r}
+## Select the data points after from 2001
+GTdata_sub_2000 <- GTdata_sub %>% 
+  filter(year > 2000)
+
+world <- borders("world", colour = "gray50", fill = "gray50")
+worldmap <- ggplot() + world + scale_y_continuous(limits=c(-55, 90))
+worldmap + 
+  geom_point(aes(x = GTdata_sub_2000$longitude[GTdata_sub$nkill<51], y = GTdata_sub_2000$latitude[GTdata_sub$nkill<51]),
+             col='blue', alpha= 0.2) +
+  geom_point(aes(x = GTdata_sub_2000$longitude[GTdata_sub$nkill>50], y = GTdata_sub_2000$latitude[GTdata_sub$nkill>50]),
+             col='red', size=2) +
+  labs(title='Location of terrorist attacks by severity')
+```
+
+## 5. Data wrangling
+We select all important numeric variables related with terrorism activities and economy development. Some of them are highly imbalanced, and we will drop them.
+```{r}
+GTdata_model <- gtdata %>%
+  select(iyear, country_txt, GDP, MLE, MLE_G, region, region_txt, specificity, 
+         vicinity, crit1, crit2, crit3, doubtterr, multiple,
+         success, suicide, attacktype1, targtype1, targsubtype1, 
+         weaptype1, weapsubtype1, nkill, nkillter, nwound, nwoundte, property, 
+         propextent, propvalue, ransom, INT_ANY)
+```
+
+```{r}
+glimpse(GTdata_model)
+```
+
+```{r warning=FALSE, message=FALSE}
+GTdata_model$vicinity <- as.integer(as.character(GTdata_model$vicinity))
+GTdata_model$crit1 <- as.integer(as.character(GTdata_model$crit1))
+GTdata_model$crit2 <- as.integer(as.character(GTdata_model$crit2))
+GTdata_model$crit3 <- as.integer(as.character(GTdata_model$crit3))
+GTdata_model$doubtterr <- as.integer(as.character(GTdata_model$doubtterr))
+GTdata_model$multiple <- as.integer(as.character(GTdata_model$multiple))
+GTdata_model$success <- as.integer(as.character(GTdata_model$success))
+GTdata_model$suicide <- as.integer(as.character(GTdata_model$suicide))
+GTdata_model$attacktype1 <- as.integer(as.character(GTdata_model$attacktype1))
+GTdata_model$targtype1 <- as.integer(as.character(GTdata_model$targtype1))
+
+GTdata_model$targsubtype1 <- as.integer(as.character(GTdata_model$targsubtype1))
+
+GTdata_model$weaptype1 <- as.integer(as.character(GTdata_model$weaptype1))
+
+GTdata_model$weapsubtype1 <- as.integer(as.character(GTdata_model$weapsubtype1))
+
+GTdata_model$nkill <- as.integer(as.character(GTdata_model$nkill))
+GTdata_model$nwound <- as.integer(as.character(GTdata_model$nwound))
+GTdata_model$nwoundte <- as.integer(as.character(GTdata_model$nwoundte))
+GTdata_model$property <- as.integer(as.character(GTdata_model$property))
+GTdata_model$propextent <- as.integer(as.character(GTdata_model$propextent))
+GTdata_model$propvalue <- as.integer(as.character(GTdata_model$propvalue))
+GTdata_model$INT_ANY <- as.integer(as.character(GTdata_model$INT_ANY))
+```
+
+```{r}
+glimpse(GTdata_model)
+```
+
+```{r}
+GTdata_model <- GTdata_model %>% 
+  rename(year = iyear, 
+         country = country_txt)
+```
+
+- Select out some countries deeply influenced by terrorism activities
+  - Select 2-4 countries from different regions, such as South America (region = 3), Southeast Asia (region = 5), and so on.
+  - Select more countries from Middle East & North Africa (region = 10) 
+```{r}
+country_list <- c("Canada", "United States", 
+                  "Peru", "Colombia", 
+                  "Malaysia", "Philippines", "Thailand", "Indonesia",
+                  "India", "Pakistan", "Sri Lanka",
+                  "France", "Spain", "United Kingdom", "Italy",
+                  "Algeria", "Egypt", "Israel", 
+                  "Jordan", "Lebanon", "Saudi Arabia",
+                  "Morocco", "Tunisia", "Syria", "Turkey", 
+                  "Mali", "Nigeria",
+                  "Australia", "New Zealand")
+```
+The countries we selected are all highly influenced by the terrorism activities or actively participate in the fight against terrorism.
+
+```{r}
+unique(GTdata_model$year)
+```
+
+```{r}
+GTdata_model <- GTdata_model %>% 
+  group_by(year, country, region) %>%
+  summarise(n_attacks = n(), 
+            killed = sum(na.omit(nkill)), wounded = sum(na.omit(nwound)),killters = sum(na.omit(nkillter)), 
+            propvalue = sum(na.omit(propvalue)),
+            GDP = mean(na.omit(GDP)),MLE = mean(na.omit(MLE)),MLE_G = mean(na.omit(MLE_G)), 
+            specificity = Mode(specificity, na.rm = TRUE)[1], vicinity = Mode(vicinity, na.rm = TRUE)[1], 
+            crit1 = Mode(crit1, na.rm = TRUE)[1], 
+            crit2 = Mode(crit2, na.rm = TRUE)[1], crit3 = Mode(crit3, na.rm = TRUE)[1], 
+            doubtterr = Mode(doubtterr, na.rm = TRUE)[1], 
+            multiple = Mode(multiple, na.rm = TRUE)[1], success = Mode(success, na.rm = TRUE)[1], 
+            suicide = Mode(suicide, na.rm = TRUE)[1], 
+            attacktype1 = Mode(attacktype1, na.rm = TRUE)[1], 
+            targtype1 = Mode(targtype1, na.rm = TRUE)[1], targsubtype1 = Mode(targsubtype1, na.rm = TRUE)[1], 
+            weaptype1 = Mode(weaptype1, na.rm = TRUE)[1], weapsubtype1 = Mode(weapsubtype1, na.rm = TRUE)[1],
+            property = Mode(property, na.rm = TRUE)[1], 
+            propextent = Mode(propextent, na.rm = TRUE)[1], 
+            ransom = Mode(ransom, na.rm = TRUE)[1],
+            INT_ANY = Mode(INT_ANY, na.rm = TRUE)[1])
+  
+```
+
+```{r}
+new <- GTdata_model %>% 
+  group_by(region) %>% 
+  summarise(sumattacks = sum(n_attacks))
+
+GTdata_model <- merge(GTdata_model, new, by='region')
+GTdata_model$neghboring_attacks <- (GTdata_model$sumattacks - GTdata_model$n_attacks)
+```
+
+```{r}
+glimpse(GTdata_model)
+```
+
+```{r}
+GTdata_model <- GTdata_model[, -c(30)]
+```
+
+```{r}
+for (i in 1:nrow(GTdata_model)) {
+  if(GTdata_model$propvalue[i] < 0){
+    GTdata_model$propvalue[i] <- -GTdata_model$propvalue[i]
+  }
+}
+```
+
+```{r}
+GTdata_model_train <- GTdata_model %>% 
+  filter(country %in% country_list) %>% 
+  filter(year >= 1980 & year <= 2014)
+```
+
+
+```{r}
+GTdata_model_test <- GTdata_model %>% 
+  filter(country %in% country_list) %>% 
+  filter(year >= 2015)
+```
+
+```{r}
+glimpse(GTdata_model_train)
+```
+
+```{r}
+glimpse(GTdata_model_test)
+```
+
+Replacing missing values by imputating with mean, median or mode.
+```{r}
+summary(is.na(GTdata_model_train))
+```
+
+```{r}
+summary(is.na(GTdata_model_test))
+```
+
+From the training datasets above, we can see that there are some variables with missing values.
+- There are too many missing values in "propextent" and "ransom", we will drop them from the training and testing datasets.
+```{r}
+GTdata_model_train <- select(GTdata_model_train, -propextent)
+GTdata_model_train <- select(GTdata_model_train, -ransom)
+```
+
+```{r}
+GTdata_model_test <- select(GTdata_model_test, -propextent)
+GTdata_model_test <- select(GTdata_model_test, -ransom)
+```
+
+Impute other missing values with median.
+```{r}
+GTdata_model_train$specificity <- impute(GTdata_model_train$specificity, median)
+GTdata_model_train$vicinity <- impute(GTdata_model_train$vicinity, median)
+GTdata_model_train$crit1 <- impute(GTdata_model_train$crit1, median)
+GTdata_model_train$crit2 <- impute(GTdata_model_train$crit2, median)
+GTdata_model_train$crit3 <- impute(GTdata_model_train$crit3, median)
+GTdata_model_train$doubtterr <- impute(GTdata_model_train$doubtterr, median)
+GTdata_model_train$success <- impute(GTdata_model_train$success, median)
+GTdata_model_train$attacktype1 <- impute(GTdata_model_train$attacktype1, median)
+GTdata_model_train$targtype1 <- impute(GTdata_model_train$targtype1, median)
+GTdata_model_train$targsubtype1 <- impute(GTdata_model_train$targsubtype1, median)
+GTdata_model_train$weaptype1 <- impute(GTdata_model_train$weaptype1, median)
+GTdata_model_train$weapsubtype1 <- impute(GTdata_model_train$weapsubtype1, median)
+GTdata_model_train$property <- impute(GTdata_model_train$property, median)
+GTdata_model_train$INT_ANY <- impute(GTdata_model_train$INT_ANY, median)
+```
+
+```{r}
+GTdata_model_test$attacktype1 <- impute(GTdata_model_test$attacktype1, median)
+GTdata_model_test$targtype1 <- impute(GTdata_model_test$targtype1, median)
+GTdata_model_test$targsubtype1 <- impute(GTdata_model_test$targsubtype1, median)
+GTdata_model_test$weaptype1 <- impute(GTdata_model_test$weaptype1, median)
+GTdata_model_test$weapsubtype1 <- impute(GTdata_model_test$weapsubtype1, median)
+```
+
+```{r}
+glimpse(GTdata_model_train)
+```
+
+```{r}
+glimpse(GTdata_model_test)
+```
+
+```{r warning=FALSE, message=FALSE}
+GTdata_model_train$specificity <- as.integer(GTdata_model_train$specificity)
+GTdata_model_train$vicinity <- as.integer(GTdata_model_train$vicinity)
+GTdata_model_train$targtype1 <- as.integer(GTdata_model_train$targtype1)
+GTdata_model_train$doubtterr <- as.integer(GTdata_model_train$doubtterr)
+GTdata_model_train$success <- as.integer(GTdata_model_train$success)
+GTdata_model_train$attacktype1 <- as.integer(GTdata_model_train$attacktype1)
+GTdata_model_train$targtype1 <- as.integer(GTdata_model_train$targtype1)
+GTdata_model_train$targsubtype1 <- as.integer(GTdata_model_train$targsubtype1)
+GTdata_model_train$weaptype1 <- as.integer(GTdata_model_train$weaptype1)
+GTdata_model_train$weapsubtype1 <- as.integer(GTdata_model_train$weapsubtype1)
+GTdata_model_train$property <- as.integer(GTdata_model_train$property)
+GTdata_model_train$INT_ANY <- as.integer(GTdata_model_train$INT_ANY)
+```
+
+```{r warning=FALSE, message=FALSE}
+GTdata_model_test$attacktype1 <- as.integer(GTdata_model_test$attacktype1)
+GTdata_model_test$targtype1 <- as.integer(GTdata_model_test$targtype1)
+GTdata_model_test$targsubtype1 <- as.integer(GTdata_model_test$targsubtype1)
+GTdata_model_test$weapsubtype1 <- as.integer(GTdata_model_test$weapsubtype1)
+```
+
+**First task**
+Investigate the relationship between "MLE_G" which is the main indicator of how much the economy development of one country is influenced by the military expenditure and the other variables about terrorism activities.
+
+- Ridge regression
+```{r}
+set.seed(123)
+
+ctrl <- trainControl(method = "cv", number = 10)
+```
+
+```{r}
+glimpse(GTdata_model_train)
+```
+
+```{r}
+### Drop the useless variables in the training dataset.
+model_data_train <- GTdata_model_train[, -c(2, 3)]
+```
+
+```{r}
+glimpse(model_data_train)
+```
+
+Because "crit2" has zero variances, we need to delete it from the dataset. 
+```{r}
+model_data_train <- model_data_train[, -c(13)]
+```
+
+```{r}
+ridgeGrid <- expand.grid(lambda = seq(0, .1, length = 15))
+```
+
+```{r}
+model_data_train <- data.frame(model_data_train)
+```
+
+```{r}
+ridgeTune <- train(x = select(model_data_train, -MLE_G), y = model_data_train$MLE_G, 
+                   method = "ridge", 
+                   tuneGrid = ridgeGrid, 
+                   trControl = ctrl, 
+                   preProc = c("center", "scale"))
+```
+
+```{r}
+ridgeTune
+
+plot(ridgeTune)
+```
+
+```{r}
+predict_ridge <- predict(ridgeTune, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_ridge, obs = GTdata_model_test$MLE_G)
+```
+
+- Regression Tree
+```{r}
+modelRT <- train(MLE_G ~ .,
+                 data = model_data_train,
+                 method = "rpart",
+                 tuneLength = 25,
+                 trControl = ctrl)
+```
+
+```{r,echo=FALSE, warning=FALSE}
+rpart.plot(modelRT$finalModel)
+```
+
+```{r,echo=FALSE, warning=FALSE}
+plot(modelRT,sacles=list(x=list()))
+```
+
+```{r,echo=FALSE, warning=FALSE}
+ggplot(modelRT$results, aes(x=cp, y=RMSE)) +
+geom_pointrange(aes(ymin = RMSE-RMSESD, ymax=RMSE+RMSESD)) + geom_line() + ylab("RMSE (Crossvalidation)") + xlab("Complexity parameter(CP)")
+```
+
+```{r}
+predict_rt <- predict(modelRT, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_rt, obs = GTdata_model_test$MLE_G)
+```
+
+- Support Vector Machine
+```{r,echo=FALSE, warning=FALSE}
+svmGrid <- expand.grid(.sigma = c(0.008, 0.007, 0.006, 0.005, 0.004, 0.003),
+                       .C = 2^(seq(-2,10)))
+
+modelSVM <- train(MLE_G ~ .,
+                  data = model_data_train,
+                  method = "svmRadial",
+                  tuneLength = 12,
+                  preProc = c("center", "scale"),
+                  tuneGrid = svmGrid,
+                  trControl = ctrl)
+```
+
+```{r}
+modelSVM
+```
+
+```{r}
+modelSVM$results
+```
+
+```{r,echo=FALSE, warning=FALSE}
+plot(modelSVM, scales=list(x=list(log=2)))
+```
+
+```{r}
+predict_svm <- predict(model_svm, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_svm, obs = GTdata_model_test$MLE_G)
+```
+
+- Stochastic Gradient Boosting
+```{r}
+gbmGrid <- expand.grid(interaction.depth = seq(1, 20, by = 2),
+                       n.trees = seq(100, 1000, by = 100),
+                       shrinkage = 0.03,
+                       n.minobsinnode = 1)
+```
+
+```{r}
+boostFit <- train(x = select(model_data_train, -c('MLE_G')), y = model_data_train$MLE_G,
+                  method = "gbm",
+                  trControl = ctrl,
+                  tuneGrid = gbmGrid, 
+                  preProc = c("center", "scale"),
+                  verbose = FALSE)
+```
+
+```{r}
+boostFit
+```
+
+```{r}
+plot(boostFit)
+```
+
+```{r}
+predict_gbm <- predict(boostFit, GTdata_model_test)
+```
+
+```{r}
+predict_gbm
+```
+
+```{r}
+postResample(pred = predict_gbm, obs = GTdata_model_test$MLE_G)
+```
+
+```{r}
+summary(boostFit)
+```
+
+- XGBoost
+```{r}
+xgbGrid <- expand.grid(nrounds = c(100,200),
+                       max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       eta = 0.1,
+                       gamma = 0,
+                       min_child_weight = 1,
+                       subsample = 1)
+```
+
+```{r}
+xgb_model <- train(x = select(model_data_train, -MLE_G), y = model_data_train$MLE_G,
+                  method = "xgbTree",
+                  trControl = ctrl,
+                  tuneGrid = xgbGrid, 
+                  preProc = c("center", "scale"),
+                  verbose = FALSE)
+```
+
+```{r}
+xgb_model
+```
+
+```{r}
+plot(xgb_model)
+```
+
+```{r}
+predict_xgb <- predict(xgb_model, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_xgb, obs = GTdata_model_test$MLE_G)
+```
+
+**Classification task**
+```{r}
+class_train <- model_data_train
+```
+
+```{r}
+unique(class_train$attacktype1)
+```
+
+```{r}
+class_train$attacktype1 <- as.factor(class_train$attacktype1)
+```
+
+- K-nearest Neighbors (KNN)
+```{r}
+search_grid <- expand.grid(k = seq(5, 25, by = 5))
+
+knn_model <- caret::train(x = select(class_train, -attacktype1), y = class_train$attacktype1,
+                          method = "knn", 
+                          trControl = ctrl, 
+                          preProc = c("center", "scale"),
+                          tuneGrid = search_grid)
+```
+
+```{r}
+knn_model
+```
+
+```{r}
+plot(knn_model)
+```
+
+```{r warning=FALSE}
+predictClass_KNN <- predict(knn_model, GTdata_model_test)
+
+predictProb_KNN <- predict(knn_model, GTdata_model_test, type = "prob")
+```
+
+- Stochastic Gradient Boosting
+```{r}
+gbmGrid <- expand.grid(interaction.depth = seq(1, 20, by = 2),
+                       n.trees = seq(10, 100, by = 10),
+                       shrinkage = 0.03,
+                       n.minobsinnode = 1)
+```
+
+```{r}
+gb_model <- caret::train(x = select(class_train, -attacktype1), y = class_train$attacktype1,
+                         method = "gbm",
+                         trControl = ctrl,
+                         tuneGrid = gbmGrid,
+                         preProc = c("center", "scale"), 
+                         verbose = FALSE)
+```
+
+```{r}
+gb_model
+```
+
+```{r}
+plot(gb_model)
+```
+
+```{r warning=FALSE}
+predictClass_GB <- predict(gb_model, GTdata_model_test)
+
+predictProb_GB <- predict(gb_model, GTdata_model_test, type = "prob")
+```
+
+```{r}
+summary(gb_model)
+```
+
+**Third task**
+Investigate the relationship between the number of terrorist attacks per year in one country and the other variables.
+
+```{r}
+n_train_data <- GTdata_model_train %>%
+  select(-c("year", "country", "killed", "wounded", "killters", "propvalue"))
+```
+
+```{r}
+glimpse(n_train_data)
+```
+
+Because "crit2" has zero variances, we need to delete it from the dataset. 
+```{r}
+n_train_data <- n_train_data[, -c(9)]
+```
+
+- Ridge regression
+```{r}
+ridgeGrid <- expand.grid(lambda = seq(0, .1, length = 15))
+```
+
+```{r}
+n_train_data <- data.frame(n_train_data)
+```
+
+```{r}
+ridgeTune <- train(x = select(n_train_data, -n_attacks), y = n_train_data$n_attacks, 
+                   method = "ridge", 
+                   tuneGrid = ridgeGrid, 
+                   trControl = ctrl, 
+                   preProc = c("center", "scale"))
+```
+
+```{r}
+ridgeTune
+
+plot(ridgeTune)
+```
+
+```{r}
+predict_ridge <- predict(ridgeTune, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_ridge, obs = GTdata_model_test$n_attacks)
+```
+
+- Regression Tree
+```{r}
+modelRT <- train(n_attacks ~ .,
+                 data = n_train_data,
+                 method = "rpart",
+                 tuneLength = 25,
+                 trControl = ctrl)
+```
+
+```{r,echo=FALSE, warning=FALSE}
+rpart.plot(modelRT$finalModel)
+```
+
+```{r,echo=FALSE, warning=FALSE}
+plot(modelRT,sacles=list(x=list()))
+```
+
+```{r,echo=FALSE, warning=FALSE}
+ggplot(modelRT$results, aes(x=cp, y=RMSE)) +
+geom_pointrange(aes(ymin = RMSE-RMSESD, ymax=RMSE+RMSESD)) + geom_line() + ylab("RMSE (Crossvalidation)") + xlab("Complexity parameter(CP)")
+```
+
+```{r}
+predict_rt <- predict(modelRT, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_rt, obs = GTdata_model_test$n_attacks)
+```
+
+- Support Vector Machine
+```{r,echo=FALSE, warning=FALSE}
+svmGrid <- expand.grid(.sigma = c(0.008, 0.009, 0.01, 0.011, 0.012, 0.013),
+                       .C = 2^(seq(-2,10)))
+
+modelSVM <- train(n_attacks ~ .,
+                  data = n_train_data,
+                  method = "svmRadial",
+                  tuneLength = 12,
+                  preProc = c("center", "scale"),
+                  tuneGrid = svmGrid,
+                  trControl = ctrl)
+```
+
+```{r}
+modelSVM
+```
+
+```{r}
+modelSVM$results
+```
+
+```{r,echo=FALSE, warning=FALSE}
+plot(modelSVM, scales=list(x=list(log=2)))
+```
+
+```{r}
+predict_svm <- predict(modelSVM, GTdata_model_test)
+```
+
+```{r}
+postResample(pred = predict_svm, obs = GTdata_model_test$n_attacks)
+```
+
+- Gradient Boosting
+```{r}
+gbmGrid <- expand.grid(interaction.depth = seq(1, 20, by = 2),
+                       n.trees = seq(100, 1000, by = 100),
+                       shrinkage = 0.03,
+                       n.minobsinnode = 1)
+```
+
+```{r}
+boostFit <- train(x = select(n_train_data, -c('n_attacks')), y = n_train_data$n_attacks,
+                  method = "gbm",
+                  trControl = ctrl,
+                  tuneGrid = gbmGrid, 
+                  preProc = c("center", "scale"),
+                  verbose = FALSE)
+```
+
+```{r}
+boostFit
+```
+
+
+```{r}
+predict_gbm <- predict(boostFit, GTdata_model_test)
+```
+
+```{r}
+predict_gbm
+```
+
+```{r}
+postResample(pred = predict_gbm, obs = GTdata_model_test$n_attacks)
+```
